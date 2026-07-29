@@ -1,9 +1,15 @@
+---
 services:
   minecraft:
-    image: ghcr.io/gameservermanagers/gameserver:mc
+    image: "ghcr.io/gameservermanagers/gameserver:mc\
+      @sha256:58fad87dc7ac0929581150bc850ecea801bb96dcee1e2004cb8dfd2b24a28207"
     restart: unless-stopped
     network_mode: host
     stop_grace_period: 2m
+    labels:
+      com.eslefi.gs.managed: "true"
+      com.eslefi.gs.service: minecraft
+      com.eslefi.gs.script: mcserver
     volumes:
       - minecraft-data:/data
     environment:
@@ -12,10 +18,15 @@ services:
     cpus: ${MINECRAFT_CPU_LIMIT:-4}
 
   project-zomboid:
-    image: ghcr.io/gameservermanagers/gameserver:pz
+    image: "ghcr.io/gameservermanagers/gameserver:pz\
+      @sha256:c7e8650d59be39f664ee87929085f1c526a9e1f7bd2cbbf70d4d30b772dfc57f"
     restart: unless-stopped
     network_mode: host
     stop_grace_period: 3m
+    labels:
+      com.eslefi.gs.managed: "true"
+      com.eslefi.gs.service: project-zomboid
+      com.eslefi.gs.script: pzserver
     volumes:
       - project-zomboid-data:/data
     environment:
@@ -24,10 +35,15 @@ services:
     cpus: ${PROJECT_ZOMBOID_CPU_LIMIT:-4}
 
   valheim:
-    image: ghcr.io/gameservermanagers/gameserver:vh
+    image: "ghcr.io/gameservermanagers/gameserver:vh\
+      @sha256:7fdcbe3ba832c9d5dc9afd3e485f1b4ab19c331959b7a610106cfbf182d03dba"
     restart: unless-stopped
     network_mode: host
     stop_grace_period: 2m
+    labels:
+      com.eslefi.gs.managed: "true"
+      com.eslefi.gs.service: valheim
+      com.eslefi.gs.script: vhserver
     volumes:
       - valheim-data:/data
     environment:
@@ -36,10 +52,15 @@ services:
     cpus: ${VALHEIM_CPU_LIMIT:-3}
 
   seven-days-to-die:
-    image: ghcr.io/gameservermanagers/gameserver:sdtd
+    image: "ghcr.io/gameservermanagers/gameserver:sdtd\
+      @sha256:6a0f8baccfba3da805c8eb311e377da3bf0cfe2aa493825aef9b26ce3fb6be71"
     restart: unless-stopped
     network_mode: host
     stop_grace_period: 3m
+    labels:
+      com.eslefi.gs.managed: "true"
+      com.eslefi.gs.service: seven-days-to-die
+      com.eslefi.gs.script: sdtdserver
     volumes:
       - seven-days-to-die-data:/data
     environment:
