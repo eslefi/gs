@@ -1,0 +1,54 @@
+services:
+  minecraft:
+    image: ghcr.io/gameservermanagers/gameserver:mc
+    restart: unless-stopped
+    network_mode: host
+    stop_grace_period: 2m
+    volumes:
+      - minecraft-data:/data
+    environment:
+      TZ: ${TZ:-Europe/Helsinki}
+    mem_limit: ${MINECRAFT_MEMORY_LIMIT:-8g}
+    cpus: ${MINECRAFT_CPU_LIMIT:-4}
+
+  project-zomboid:
+    image: ghcr.io/gameservermanagers/gameserver:pz
+    restart: unless-stopped
+    network_mode: host
+    stop_grace_period: 3m
+    volumes:
+      - project-zomboid-data:/data
+    environment:
+      TZ: ${TZ:-Europe/Helsinki}
+    mem_limit: ${PROJECT_ZOMBOID_MEMORY_LIMIT:-8g}
+    cpus: ${PROJECT_ZOMBOID_CPU_LIMIT:-4}
+
+  valheim:
+    image: ghcr.io/gameservermanagers/gameserver:vh
+    restart: unless-stopped
+    network_mode: host
+    stop_grace_period: 2m
+    volumes:
+      - valheim-data:/data
+    environment:
+      TZ: ${TZ:-Europe/Helsinki}
+    mem_limit: ${VALHEIM_MEMORY_LIMIT:-6g}
+    cpus: ${VALHEIM_CPU_LIMIT:-3}
+
+  seven-days-to-die:
+    image: ghcr.io/gameservermanagers/gameserver:sdtd
+    restart: unless-stopped
+    network_mode: host
+    stop_grace_period: 3m
+    volumes:
+      - seven-days-to-die-data:/data
+    environment:
+      TZ: ${TZ:-Europe/Helsinki}
+    mem_limit: ${SEVEN_DAYS_TO_DIE_MEMORY_LIMIT:-10g}
+    cpus: ${SEVEN_DAYS_TO_DIE_CPU_LIMIT:-4}
+
+volumes:
+  minecraft-data:
+  project-zomboid-data:
+  valheim-data:
+  seven-days-to-die-data:
