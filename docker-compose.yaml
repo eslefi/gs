@@ -19,7 +19,13 @@ services:
       com.eslefi.gs.service: minecraft
       com.eslefi.gs.script: mcserver
     volumes:
-      - ${GS_DATA_ROOT:-/opt/gs}/minecraft:/data
+      # Long syntax on purpose. The short `source:target` form is split on
+      # colons, and `${VAR:-default}` contains one, so a parser that splits
+      # before interpolating reads the default as the source and the path as
+      # the target -- mounting the wrong directory and dropping /data entirely.
+      - type: bind
+        source: ${GS_DATA_ROOT:-/opt/gs}/minecraft
+        target: /data
     environment:
       TZ: ${TZ:-Europe/Helsinki}
       # The complete set of variables these images actually read; verified
@@ -53,7 +59,13 @@ services:
       com.eslefi.gs.service: project-zomboid
       com.eslefi.gs.script: pzserver
     volumes:
-      - ${GS_DATA_ROOT:-/opt/gs}/project-zomboid:/data
+      # Long syntax on purpose. The short `source:target` form is split on
+      # colons, and `${VAR:-default}` contains one, so a parser that splits
+      # before interpolating reads the default as the source and the path as
+      # the target -- mounting the wrong directory and dropping /data entirely.
+      - type: bind
+        source: ${GS_DATA_ROOT:-/opt/gs}/project-zomboid
+        target: /data
     environment:
       TZ: ${TZ:-Europe/Helsinki}
       # The complete set of variables these images actually read; verified
@@ -87,7 +99,13 @@ services:
       com.eslefi.gs.service: valheim
       com.eslefi.gs.script: vhserver
     volumes:
-      - ${GS_DATA_ROOT:-/opt/gs}/valheim:/data
+      # Long syntax on purpose. The short `source:target` form is split on
+      # colons, and `${VAR:-default}` contains one, so a parser that splits
+      # before interpolating reads the default as the source and the path as
+      # the target -- mounting the wrong directory and dropping /data entirely.
+      - type: bind
+        source: ${GS_DATA_ROOT:-/opt/gs}/valheim
+        target: /data
     environment:
       TZ: ${TZ:-Europe/Helsinki}
       # The complete set of variables these images actually read; verified
@@ -121,7 +139,13 @@ services:
       com.eslefi.gs.service: seven-days-to-die
       com.eslefi.gs.script: sdtdserver
     volumes:
-      - ${GS_DATA_ROOT:-/opt/gs}/seven-days-to-die:/data
+      # Long syntax on purpose. The short `source:target` form is split on
+      # colons, and `${VAR:-default}` contains one, so a parser that splits
+      # before interpolating reads the default as the source and the path as
+      # the target -- mounting the wrong directory and dropping /data entirely.
+      - type: bind
+        source: ${GS_DATA_ROOT:-/opt/gs}/seven-days-to-die
+        target: /data
     environment:
       TZ: ${TZ:-Europe/Helsinki}
       # The complete set of variables these images actually read; verified
