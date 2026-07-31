@@ -19,12 +19,14 @@ services:
       com.eslefi.gs.service: minecraft
       com.eslefi.gs.script: mcserver
     volumes:
-      # Long syntax on purpose. The short `source:target` form is split on
-      # colons, and `${VAR:-default}` contains one, so a parser that splits
-      # before interpolating reads the default as the source and the path as
-      # the target -- mounting the wrong directory and dropping /data entirely.
+      # The source path is a LITERAL, not a variable, and must stay that way:
+      # Coolify rejects any volume source containing `${` outright
+      # ("Shell metacharacters are not allowed for security reasons"), and the
+      # short "source:target" form additionally mis-splits a default-value
+      # expression on the colon inside it, silently mounting the wrong
+      # directory. To relocate the data, edit these four paths.
       - type: bind
-        source: ${GS_DATA_ROOT:-/opt/gs}/minecraft
+        source: /opt/gs/minecraft
         target: /data
     environment:
       TZ: ${TZ:-Europe/Helsinki}
@@ -59,12 +61,14 @@ services:
       com.eslefi.gs.service: project-zomboid
       com.eslefi.gs.script: pzserver
     volumes:
-      # Long syntax on purpose. The short `source:target` form is split on
-      # colons, and `${VAR:-default}` contains one, so a parser that splits
-      # before interpolating reads the default as the source and the path as
-      # the target -- mounting the wrong directory and dropping /data entirely.
+      # The source path is a LITERAL, not a variable, and must stay that way:
+      # Coolify rejects any volume source containing `${` outright
+      # ("Shell metacharacters are not allowed for security reasons"), and the
+      # short "source:target" form additionally mis-splits a default-value
+      # expression on the colon inside it, silently mounting the wrong
+      # directory. To relocate the data, edit these four paths.
       - type: bind
-        source: ${GS_DATA_ROOT:-/opt/gs}/project-zomboid
+        source: /opt/gs/project-zomboid
         target: /data
     environment:
       TZ: ${TZ:-Europe/Helsinki}
@@ -99,12 +103,14 @@ services:
       com.eslefi.gs.service: valheim
       com.eslefi.gs.script: vhserver
     volumes:
-      # Long syntax on purpose. The short `source:target` form is split on
-      # colons, and `${VAR:-default}` contains one, so a parser that splits
-      # before interpolating reads the default as the source and the path as
-      # the target -- mounting the wrong directory and dropping /data entirely.
+      # The source path is a LITERAL, not a variable, and must stay that way:
+      # Coolify rejects any volume source containing `${` outright
+      # ("Shell metacharacters are not allowed for security reasons"), and the
+      # short "source:target" form additionally mis-splits a default-value
+      # expression on the colon inside it, silently mounting the wrong
+      # directory. To relocate the data, edit these four paths.
       - type: bind
-        source: ${GS_DATA_ROOT:-/opt/gs}/valheim
+        source: /opt/gs/valheim
         target: /data
     environment:
       TZ: ${TZ:-Europe/Helsinki}
@@ -139,12 +145,14 @@ services:
       com.eslefi.gs.service: seven-days-to-die
       com.eslefi.gs.script: sdtdserver
     volumes:
-      # Long syntax on purpose. The short `source:target` form is split on
-      # colons, and `${VAR:-default}` contains one, so a parser that splits
-      # before interpolating reads the default as the source and the path as
-      # the target -- mounting the wrong directory and dropping /data entirely.
+      # The source path is a LITERAL, not a variable, and must stay that way:
+      # Coolify rejects any volume source containing `${` outright
+      # ("Shell metacharacters are not allowed for security reasons"), and the
+      # short "source:target" form additionally mis-splits a default-value
+      # expression on the colon inside it, silently mounting the wrong
+      # directory. To relocate the data, edit these four paths.
       - type: bind
-        source: ${GS_DATA_ROOT:-/opt/gs}/seven-days-to-die
+        source: /opt/gs/seven-days-to-die
         target: /data
     environment:
       TZ: ${TZ:-Europe/Helsinki}

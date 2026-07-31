@@ -28,7 +28,7 @@ three tiers. **Which tier a value belongs to decides whether it does anything.**
 
 | Tier | What | Delivered by | Settable in Coolify |
 | --- | --- | --- | --- |
-| 1 | Container shape — `TZ`, `GS_DATA_ROOT`, `*_MEMORY_LIMIT`, `*_CPU_LIMIT` | `docker compose` | yes |
+| 1 | Container shape — `TZ`, `*_MEMORY_LIMIT`, `*_CPU_LIMIT` | `docker compose` | yes |
 | 2 | `UPDATE_CHECK`, `VALIDATE_ON_START`, `UID`/`GID`, `LGSM_*` | container environment | yes |
 | 3 | Every game and LinuxGSM setting | `./manage.sh apply-config` | yes |
 
@@ -258,8 +258,8 @@ Restart the Minecraft container afterward.
 
 ## Persistent data
 
-Each server bind-mounts its own folder under `GS_DATA_ROOT` (default `/opt/gs`)
-to `/data` inside the container:
+Each server bind-mounts its own folder under `/opt/gs` to `/data` inside the
+container:
 
 ```text
 /opt/gs/
@@ -269,9 +269,16 @@ to `/data` inside the container:
 └── seven-days-to-die/
 ```
 
-`GS_DATA_ROOT` must be an **absolute** path. A relative one would resolve
-inside Coolify's per-deployment checkout directory, which changes on every
-deploy — the data would silently land somewhere new each time.
+These paths are **literal in `docker-compose.yaml` and deliberately not an
+environment variable**. Coolify rejects any volume source containing a variable
+reference outright ("Shell metacharacters are not allowed for security
+reasons"), and the short `source:target` volume form additionally mis-splits a
+`${VAR:-default}` expression on the colon inside it — which silently mounts the
+wrong directory rather than failing. To relocate the data, edit the four
+`source:` lines in `docker-compose.yaml`.
+
+They must stay **absolute**. A relative path would resolve inside Coolify's
+per-deployment checkout directory, which changes on every deploy.
 
 Each folder must be owned by `GS_UID:GS_GID` (default `1000:1000`), matching the
 container's `linuxgsm` user. The entrypoint chowns `/data` on start, so a
@@ -311,7 +318,7 @@ docker volume rm <project>_minecraft-data  # ...only once verified
 ```
 
 Note that Docker will happily create an **empty** directory for a bind mount
-that does not exist. A typo in `GS_DATA_ROOT` therefore does not fail loudly —
+that does not exist. A typo in a `source:` path therefore does not fail loudly —
 it presents as LinuxGSM reinstalling the game from scratch onto a blank folder,
 with the real data still sitting in the old location.
 
