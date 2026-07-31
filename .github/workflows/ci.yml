@@ -41,7 +41,8 @@ jobs:
       # the corrupted form as an example, and would otherwise match itself.
       - name: Reject shfmt-corrupted array keys
         run: |
-          if grep -vE '^[[:space:]]*#' manage.sh | grep -qE '\[(project|seven) - '; then
-            echo "manage.sh has shfmt-corrupted associative array keys" >&2
+          code=$(grep -vE '^[[:space:]]*#' manage.sh)
+          if grep -qE '\[(project|seven) - ' <<<"$code"; then
+            echo "manage.sh has shfmt-corrupted array keys" >&2
             exit 1
           fi
