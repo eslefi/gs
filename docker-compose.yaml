@@ -47,7 +47,7 @@ services:
       timeout: 10s
       retries: 3
       start_period: 30m
-    mem_limit: ${MINECRAFT_MEMORY_LIMIT:-8g}
+    mem_limit: ${MINECRAFT_MEMORY_LIMIT:-11g}
     cpus: ${MINECRAFT_CPU_LIMIT:-3}
 
   project-zomboid:
@@ -89,7 +89,7 @@ services:
       timeout: 10s
       retries: 3
       start_period: 30m
-    mem_limit: ${PROJECT_ZOMBOID_MEMORY_LIMIT:-14g}
+    mem_limit: ${PROJECT_ZOMBOID_MEMORY_LIMIT:-18g}
     cpus: ${PROJECT_ZOMBOID_CPU_LIMIT:-3}
 
   valheim:
@@ -173,5 +173,5 @@ services:
       timeout: 10s
       retries: 3
       start_period: 45m
-    mem_limit: ${SEVEN_DAYS_TO_DIE_MEMORY_LIMIT:-16g}
+    mem_limit: ${SEVEN_DAYS_TO_DIE_MEMORY_LIMIT:-20g}
     cpus: ${SEVEN_DAYS_TO_DIE_CPU_LIMIT:-3}

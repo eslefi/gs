@@ -122,22 +122,47 @@ of failure:
 
 ## Sizing
 
-Limits are sized for **10 concurrent players** per server.
+Limits are sized for **15 concurrent players** per server — except Valheim,
+which vanilla hard-caps at 10 (see below).
 
 `*_MEMORY_LIMIT` is the *container* limit. For the two Java servers it is **not**
 the setting that bounds the game's memory — raising it alone does nothing. The
 container limit must always exceed the game's heap, never equal it.
 
-| Server | Container limit | Game memory setting | Player cap setting | Documented basis @10 players |
-| --- | --- | --- | --- | --- |
-| Minecraft | `MINECRAFT_MEMORY_LIMIT` (8g) | `javaram=6144` in `/data/config-lgsm/mcserver/mcserver.cfg` | `max-players` in `server.properties` | 4–8 GB heap |
-| Project Zomboid | `PROJECT_ZOMBOID_MEMORY_LIMIT` (14g) | `-Xmx11g` in `/data/serverfiles/ProjectZomboid64.json` | `MaxPlayers` in the server `.ini` | ~6 GB base + 0.5 GB/player |
-| Valheim | `VALHEIM_MEMORY_LIMIT` (6g) | none (native binary) | vanilla cap is 10 | 2 GB official min, 4–6 GB practical |
-| 7 Days to Die | `SEVEN_DAYS_TO_DIE_MEMORY_LIMIT` (16g) | none (native binary) | `ServerMaxPlayerCount` in `sdtdserver.xml` | 16–32 GB (8–16 player tier) |
+| Server | Players | Container limit | Game memory setting | Player cap setting | Documented basis |
+| --- | --- | --- | --- | --- | --- |
+| Minecraft | 15 | `MINECRAFT_MEMORY_LIMIT` (11g) | `javaram=8192` in `/data/config-lgsm/mcserver/mcserver.cfg` | `max-players` in `server.properties` | ~8 GB heap at 15 players |
+| Project Zomboid | 15 | `PROJECT_ZOMBOID_MEMORY_LIMIT` (18g) | `-Xmx14g` in `/data/serverfiles/ProjectZomboid64.json` | `MaxPlayers` in the server `.ini` | ~6 GB base + 0.5 GB/player |
+| Valheim | **10** | `VALHEIM_MEMORY_LIMIT` (6g) | none (native binary) | **not configurable** | 2 GB official min, 4–6 GB practical |
+| 7 Days to Die | 15 | `SEVEN_DAYS_TO_DIE_MEMORY_LIMIT` (20g) | none (native binary) | `ServerMaxPlayerCount` in `sdtdserver.xml` | 8 GB + 0.5–1 GB/player |
+
+The limits total 55 GiB on a 62 GiB host. They are ceilings, not reservations —
+current idle use across all four is under 6 GiB — but all four running full at
+once (15+15+10+15 = 55 players) would exceed physical memory. Size down if that
+is a realistic scenario for you.
 
 LinuxGSM ships Minecraft with `javaram="1024"`, i.e. a 1 GB heap. That default
 must be overridden or the server will exhaust its heap well before the container
 limit matters.
+
+### Two capability limits
+
+**Valheim cannot exceed 10 players.** Vanilla hard-caps it; there is no server
+setting and no `-maxplayers` argument in the binary. Raising it requires a mod
+(ValheimPlus or MaxPlayerCount) installed on the server **and on every
+connecting client**.
+
+**Minecraft has no join password.** `server.properties` offers only
+`white-list`, `online-mode` and `rcon.password` — the last being remote admin
+console access, not a join gate. To restrict who can connect, use the whitelist:
+
+```bash
+MINECRAFT_PROP_white_list=true
+MINECRAFT_PROP_enforce_whitelist=true
+```
+
+then add accounts with `./manage.sh exec minecraft ./mcserver console` and
+`whitelist add <name>`.
 
 CPU limits total 11 on an 8-core host. This is a deliberate mild overcommit —
 these games are single-thread bound and are not expected to peak simultaneously.
