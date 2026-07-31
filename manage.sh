@@ -432,12 +432,16 @@ apply_lgsm_config() {
   local block existing key value count=0
 
   block="$MANAGED_BEGIN"$'\n'
+  # Sorted so the output is deterministic, and so a setting that another one
+  # interpolates is assigned first. LinuxGSM's configs expand eagerly: a
+  # `startparameters` referencing ${serverpassword} captures whatever the
+  # variable held at assignment time, so `serverpassword` must precede it.
   while IFS=$'\t' read -r key value; do
     [[ -n "$key" ]] || continue
     # LinuxGSM config keys are lowercase; values are always quoted strings.
     block+="${key,,}=\"${value}\""$'\n'
     ((count++))
-  done < <(env_pairs "$prefix" "LGSM")
+  done < <(env_pairs "$prefix" "LGSM" | sort -t$'\t' -k1,1)
   block+="$MANAGED_END"
 
   if ((count == 0)); then

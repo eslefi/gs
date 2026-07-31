@@ -182,11 +182,18 @@ Open at least the following default ports on the host and any upstream firewall:
 | --- | --- |
 | Minecraft | `25565/tcp`, `25565/udp` (query; `enable-query=true`) |
 | Project Zomboid | `16261/udp`, player ports beginning at `16262/udp` |
-| Valheim | `2456-2458/udp` |
+| Valheim | `2456/udp` (game), `2457/udp` (query) |
 | 7 Days to Die | `26900/tcp`, `26900-26903/udp`, `11000/udp` (Steam networking) |
 
 Omitting Minecraft's UDP port makes the server invisible to the multiplayer
 server list even though direct connections still work.
+
+Valheim's ports depend on the networking backend. LinuxGSM's default start
+parameters include `-crossplay`, which routes traffic through the PlayFab relay
+and never binds a game port at all — only outbound 443 is needed, and 2456-2458
+would be pointless to open. This stack disables crossplay
+(`VALHEIM_LGSM_STARTPARAMETERS`) so it uses plain Steam networking on the ports
+above. If you re-enable crossplay, this row no longer applies.
 
 Verify the effective ports after installation:
 
