@@ -1,4 +1,12 @@
 ---
+# Resource limits are sized for 10 concurrent players per server; see the
+# "Sizing" table in README.md for the documented basis of each value.
+#
+# The healthcheck below deliberately replaces the image's default, which runs
+# LinuxGSM `monitor`. That default restarts a dead server and exits 0, so it can
+# never report unhealthy — a crash-looping server shows "healthy" indefinitely.
+# These checks report state instead of performing repair. `start_period` is
+# generous because LinuxGSM downloads the dedicated server on first start.
 services:
   minecraft:
     image: "ghcr.io/gameservermanagers/gameserver:mc\
@@ -11,11 +19,28 @@ services:
       com.eslefi.gs.service: minecraft
       com.eslefi.gs.script: mcserver
     volumes:
-      - minecraft-data:/data
+      - ${GS_DATA_ROOT:-/opt/gs}/minecraft:/data
     environment:
       TZ: ${TZ:-Europe/Helsinki}
+      # The complete set of variables these images actually read; verified
+      # against /app/entrypoint.sh and /app/entrypoint-user.sh. Game settings
+      # cannot be delivered here — see .env.example Tier 3 and `apply-config`.
+      UPDATE_CHECK: ${GS_UPDATE_CHECK:-60}
+      VALIDATE_ON_START: ${GS_VALIDATE_ON_START:-false}
+      UID: ${GS_UID:-1000}
+      GID: ${GS_GID:-1000}
+      LGSM_GITHUBUSER: ${LGSM_GITHUBUSER:-GameServerManagers}
+      LGSM_GITHUBREPO: ${LGSM_GITHUBREPO:-LinuxGSM}
+      LGSM_GITHUBBRANCH: ${LGSM_GITHUBBRANCH:-master}
+      LGSM_DEV: ${LGSM_DEV:-false}
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f '[m]inecraft_server.jar' >/dev/null"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30m
     mem_limit: ${MINECRAFT_MEMORY_LIMIT:-8g}
-    cpus: ${MINECRAFT_CPU_LIMIT:-4}
+    cpus: ${MINECRAFT_CPU_LIMIT:-3}
 
   project-zomboid:
     image: "ghcr.io/gameservermanagers/gameserver:pz\
@@ -28,11 +53,28 @@ services:
       com.eslefi.gs.service: project-zomboid
       com.eslefi.gs.script: pzserver
     volumes:
-      - project-zomboid-data:/data
+      - ${GS_DATA_ROOT:-/opt/gs}/project-zomboid:/data
     environment:
       TZ: ${TZ:-Europe/Helsinki}
-    mem_limit: ${PROJECT_ZOMBOID_MEMORY_LIMIT:-8g}
-    cpus: ${PROJECT_ZOMBOID_CPU_LIMIT:-4}
+      # The complete set of variables these images actually read; verified
+      # against /app/entrypoint.sh and /app/entrypoint-user.sh. Game settings
+      # cannot be delivered here — see .env.example Tier 3 and `apply-config`.
+      UPDATE_CHECK: ${GS_UPDATE_CHECK:-60}
+      VALIDATE_ON_START: ${GS_VALIDATE_ON_START:-false}
+      UID: ${GS_UID:-1000}
+      GID: ${GS_GID:-1000}
+      LGSM_GITHUBUSER: ${LGSM_GITHUBUSER:-GameServerManagers}
+      LGSM_GITHUBREPO: ${LGSM_GITHUBREPO:-LinuxGSM}
+      LGSM_GITHUBBRANCH: ${LGSM_GITHUBBRANCH:-master}
+      LGSM_DEV: ${LGSM_DEV:-false}
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f '[P]rojectZomboid64' >/dev/null"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30m
+    mem_limit: ${PROJECT_ZOMBOID_MEMORY_LIMIT:-14g}
+    cpus: ${PROJECT_ZOMBOID_CPU_LIMIT:-3}
 
   valheim:
     image: "ghcr.io/gameservermanagers/gameserver:vh\
@@ -45,11 +87,28 @@ services:
       com.eslefi.gs.service: valheim
       com.eslefi.gs.script: vhserver
     volumes:
-      - valheim-data:/data
+      - ${GS_DATA_ROOT:-/opt/gs}/valheim:/data
     environment:
       TZ: ${TZ:-Europe/Helsinki}
+      # The complete set of variables these images actually read; verified
+      # against /app/entrypoint.sh and /app/entrypoint-user.sh. Game settings
+      # cannot be delivered here — see .env.example Tier 3 and `apply-config`.
+      UPDATE_CHECK: ${GS_UPDATE_CHECK:-60}
+      VALIDATE_ON_START: ${GS_VALIDATE_ON_START:-false}
+      UID: ${GS_UID:-1000}
+      GID: ${GS_GID:-1000}
+      LGSM_GITHUBUSER: ${LGSM_GITHUBUSER:-GameServerManagers}
+      LGSM_GITHUBREPO: ${LGSM_GITHUBREPO:-LinuxGSM}
+      LGSM_GITHUBBRANCH: ${LGSM_GITHUBBRANCH:-master}
+      LGSM_DEV: ${LGSM_DEV:-false}
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f '[v]alheim_server' >/dev/null"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30m
     mem_limit: ${VALHEIM_MEMORY_LIMIT:-6g}
-    cpus: ${VALHEIM_CPU_LIMIT:-3}
+    cpus: ${VALHEIM_CPU_LIMIT:-2}
 
   seven-days-to-die:
     image: "ghcr.io/gameservermanagers/gameserver:sdtd\
@@ -62,14 +121,25 @@ services:
       com.eslefi.gs.service: seven-days-to-die
       com.eslefi.gs.script: sdtdserver
     volumes:
-      - seven-days-to-die-data:/data
+      - ${GS_DATA_ROOT:-/opt/gs}/seven-days-to-die:/data
     environment:
       TZ: ${TZ:-Europe/Helsinki}
-    mem_limit: ${SEVEN_DAYS_TO_DIE_MEMORY_LIMIT:-10g}
-    cpus: ${SEVEN_DAYS_TO_DIE_CPU_LIMIT:-4}
-
-volumes:
-  minecraft-data:
-  project-zomboid-data:
-  valheim-data:
-  seven-days-to-die-data:
+      # The complete set of variables these images actually read; verified
+      # against /app/entrypoint.sh and /app/entrypoint-user.sh. Game settings
+      # cannot be delivered here — see .env.example Tier 3 and `apply-config`.
+      UPDATE_CHECK: ${GS_UPDATE_CHECK:-60}
+      VALIDATE_ON_START: ${GS_VALIDATE_ON_START:-false}
+      UID: ${GS_UID:-1000}
+      GID: ${GS_GID:-1000}
+      LGSM_GITHUBUSER: ${LGSM_GITHUBUSER:-GameServerManagers}
+      LGSM_GITHUBREPO: ${LGSM_GITHUBREPO:-LinuxGSM}
+      LGSM_GITHUBBRANCH: ${LGSM_GITHUBBRANCH:-master}
+      LGSM_DEV: ${LGSM_DEV:-false}
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f '[7]DaysToDieServer' >/dev/null"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 45m
+    mem_limit: ${SEVEN_DAYS_TO_DIE_MEMORY_LIMIT:-16g}
+    cpus: ${SEVEN_DAYS_TO_DIE_CPU_LIMIT:-3}

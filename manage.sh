@@ -1,11 +1,23 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
+# Extended globs are used by the .env parser's trimming patterns.
+shopt -s extglob
 
 readonly SCRIPT_NAME="${0##*/}"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+readonly SCRIPT_DIR
+readonly ENV_FILE="${ENV_FILE:-$SCRIPT_DIR/.env}"
+readonly MANAGED_BEGIN="# BEGIN managed by manage.sh apply-config - edits here are overwritten"
+readonly MANAGED_END="# END managed by manage.sh apply-config"
 readonly LABEL_MANAGED="com.eslefi.gs.managed=true"
 readonly LABEL_SERVICE="com.eslefi.gs.service"
 readonly LABEL_SCRIPT="com.eslefi.gs.script"
 readonly LINUXGSM_USER="linuxgsm"
+
+# Matches the running dedicated-server process inside any of the containers.
+# Bracketed first characters keep the pattern from matching the pgrep shell
+# itself. Container state alone does not tell us whether the game is alive.
+readonly GAME_PROCESS_RE='[m]inecraft_server[.]jar|[P]rojectZomboid64|[v]alheim_server|[7]DaysToDieServer'
 
 readonly -a SERVICES=(
   minecraft
@@ -14,6 +26,9 @@ readonly -a SERVICES=(
   seven-days-to-die
 )
 
+# Do not run `shfmt -w` on this file: shfmt misparses hyphenated associative
+# array keys as arithmetic ([project-zomboid] -> [project - zomboid]) and
+# silently breaks every lookup below. `shfmt -d` shows the corruption.
 declare -A DISPLAY_NAMES=(
   [minecraft]="Minecraft"
   [project-zomboid]="Project Zomboid"
@@ -29,6 +44,30 @@ declare -A DEFAULT_SCRIPTS=(
   [seven-days-to-die]="sdtdserver"
 )
 readonly DEFAULT_SCRIPTS
+
+# Environment-variable prefix per service, used by `apply-config`.
+declare -A ENV_PREFIX=(
+  [minecraft]="MINECRAFT"
+  [project-zomboid]="PROJECT_ZOMBOID"
+  [valheim]="VALHEIM"
+  [seven-days-to-die]="SEVEN_DAYS_TO_DIE"
+)
+readonly ENV_PREFIX
+
+# Game config file per service, as "<format>|<infix>|<keystyle>|<path>".
+#   infix    - the env-var segment, e.g. PROP in MINECRAFT_PROP_max_players
+#   keystyle - dash:     _ becomes -, and a leading query-/rcon- becomes
+#              query./rcon.  (server.properties uses characters that are
+#              illegal in shell variable names, so they must be translated)
+#              verbatim: the key is used exactly as written
+# Valheim has no game config file of its own — everything is driven through
+# LinuxGSM start parameters, so it has no entry here.
+declare -A GAME_CONFIG=(
+  [minecraft]="kv|PROP|dash|/data/serverfiles/server.properties"
+  [project-zomboid]="kv|INI|verbatim|/data/Zomboid/Server/pzserver.ini"
+  [seven-days-to-die]="xml|XML|verbatim|/data/serverfiles/sdtdserver.xml"
+)
+readonly GAME_CONFIG
 
 if [[ -t 1 && "${NO_COLOR:-}" == "" ]]; then
   readonly RED=$'\033[31m'
@@ -71,6 +110,7 @@ Commands:
   shell <server>               Open a shell as the linuxgsm user
   exec <server> <command...>   Execute an arbitrary command in the container
   upgrade <server|all>         update-lgsm, update and validate sequentially
+  apply-config <server|all>    Push settings from .env into the server configs
   doctor                       Check Docker, containers, resources and ports
   help                         Show this help
 
@@ -147,6 +187,35 @@ is_running() {
   [[ "$(container_state "$1")" == "running" ]]
 }
 
+# `docker exec -it` fails outright when stdin is not a terminal, which breaks
+# every non-interactive caller (cron, CI, pipes). Allocate a TTY only when one
+# actually exists.
+docker_exec_tty() {
+  local -a tty=()
+  if [[ -t 0 && -t 1 ]]; then
+    tty=(-i -t)
+  fi
+  docker exec ${tty[@]+"${tty[@]}"} --user "$LINUXGSM_USER" "$@"
+}
+
+require_tty() {
+  [[ -t 0 && -t 1 ]] || die "'$1' requires an interactive terminal."
+}
+
+# True when the container is running the actual game process, not merely up.
+game_is_running() {
+  docker exec --user "$LINUXGSM_USER" "$1" \
+    sh -lc "ps -eo args | grep -qE '$GAME_PROCESS_RE'" 2>/dev/null
+}
+
+# LinuxGSM writes one script log per start attempt. Count only the last hour:
+# the all-time total never decreases, so it would keep warning long after a
+# crash loop was fixed.
+start_attempt_count() {
+  docker exec --user "$LINUXGSM_USER" "$1" \
+    sh -lc 'find /data/log/script -name "*-script-*.log" -mmin -60 2>/dev/null | wc -l' 2>/dev/null || echo 0
+}
+
 linuxgsm_script() {
   local service=$1 id=$2 script
   script=$(docker inspect --format "{{ index .Config.Labels \"$LABEL_SCRIPT\" }}" "$id" 2>/dev/null || true)
@@ -177,7 +246,7 @@ run_lgsm() {
   name=$(container_name "$id")
 
   log_info "${DISPLAY_NAMES[$service]}: ./$script $command ($name)"
-  docker exec -it --user "$LINUXGSM_USER" "$id" "./$script" "$command"
+  docker_exec_tty "$id" "./$script" "$command"
 }
 
 run_lgsm_noninteractive() {
@@ -211,7 +280,7 @@ print_list() {
   printf '%-22s %-28s %-12s %-12s\n' "SERVER" "CONTAINER" "CONTAINER" "LINUXGSM"
   printf '%-22s %-28s %-12s %-12s\n' "----------------------" "----------------------------" "------------" "------------"
 
-  local service id name state script lgsm_state
+  local service id name state lgsm_state
   for service in "${SERVICES[@]}"; do
     if ! id=$(container_id "$service"); then
       printf '%-22s %-28s %-12s %-12s\n' "${DISPLAY_NAMES[$service]}" "-" "missing" "-"
@@ -220,14 +289,16 @@ print_list() {
 
     name=$(container_name "$id")
     state=$(container_state "$id")
-    script=$(linuxgsm_script "$service" "$id")
     lgsm_state="unavailable"
 
+    # Report whether the *game* is alive, not merely whether the container is.
+    # A container can sit "running" for hours around a dead or crash-looping
+    # server, which is exactly the failure this column has to surface.
     if [[ "$state" == "running" ]]; then
-      if docker exec --user "$LINUXGSM_USER" "$id" "./$script" details >/dev/null 2>&1; then
-        lgsm_state="available"
+      if game_is_running "$id"; then
+        lgsm_state="running"
       else
-        lgsm_state="check failed"
+        lgsm_state="DOWN"
       fi
     fi
 
@@ -255,9 +326,10 @@ show_logs() {
 
 open_shell() {
   local service=$1 id shell
+  require_tty shell
   id=$(require_running_container "$service") || return 1
   shell=$(docker exec --user "$LINUXGSM_USER" "$id" sh -lc 'command -v bash || command -v sh')
-  docker exec -it --user "$LINUXGSM_USER" "$id" "$shell"
+  docker_exec_tty "$id" "$shell"
 }
 
 exec_in_container() {
@@ -266,7 +338,193 @@ exec_in_container() {
   (( $# > 0 )) || die "exec requires a command."
   local id
   id=$(require_running_container "$service") || return 1
-  docker exec -it --user "$LINUXGSM_USER" "$id" "$@"
+  docker_exec_tty "$id" "$@"
+}
+
+# Load .env so apply-config can see the *_LGSM_/_PROP_/_INI_/_XML_ variables.
+# Compose reads this file too, but only for its own interpolation — it does not
+# pass these through to the containers, and the LinuxGSM images have no
+# mechanism to consume arbitrary settings from the environment anyway.
+# Settings from the host .env file (lowest precedence).
+declare -A ENVFILE=()
+# Effective settings for the service currently being configured.
+declare -A SETTINGS=()
+
+# Parsed rather than sourced, deliberately. This file is also read by docker
+# compose, whose quoting rules differ from the shell's: `ServerName=My Game Host`
+# is valid for compose but would make the shell try to run `Game`. Parsing keeps
+# both consumers agreeing, and stops a config file from executing code.
+#
+# Missing is not fatal: on a Coolify host the settings normally arrive through
+# the container environment instead, and there is no .env in the deployment.
+load_env_file() {
+  ENVFILE=()
+  if [[ ! -f "$ENV_FILE" ]]; then
+    log_info "No $ENV_FILE; using the container environment only."
+    return 0
+  fi
+
+  local line key value
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    line=${line%$'\r'}
+    [[ "$line" =~ ^[[:space:]]*(#|$) ]] && continue
+    [[ "$line" == *=* ]] || continue
+
+    key=${line%%=*}
+    value=${line#*=}
+    key=${key##*([[:space:]])}
+    key=${key%%*([[:space:]])}
+    key=${key#export }
+    [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+
+    if [[ ${#value} -ge 2 && "$value" == \"*\" ]]; then
+      value=${value:1:${#value}-2}
+    elif [[ ${#value} -ge 2 && "$value" == \'*\' ]]; then
+      value=${value:1:${#value}-2}
+    else
+      # Unquoted: drop a trailing ` # comment`, matching compose's behaviour.
+      value=${value%%+([[:space:]])#*}
+      value=${value%%*([[:space:]])}
+    fi
+
+    ENVFILE["$key"]=$value
+  done < "$ENV_FILE"
+}
+
+# Build the effective settings for one service. The container environment wins
+# over the host .env, so a value set in Coolify beats a stale local file. The
+# LinuxGSM images ignore these variables themselves — the container environment
+# is being used purely as a transport that Coolify already knows how to fill.
+collect_settings() {
+  local id=$1 line key value
+  SETTINGS=()
+  for key in "${!ENVFILE[@]}"; do
+    SETTINGS["$key"]=${ENVFILE[$key]}
+  done
+  while IFS= read -r line; do
+    [[ "$line" == *=* ]] || continue
+    key=${line%%=*}
+    value=${line#*=}
+    [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+    SETTINGS["$key"]=$value
+  done < <(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$id" 2> /dev/null || true)
+}
+
+# Emit "key<TAB>value" for every setting named <PREFIX>_<INFIX>_<KEY>.
+# The convention means every setting the game exposes is reachable without this
+# script carrying a table of hundreds of key names.
+env_pairs() {
+  local prefix=$1 infix=$2 var key
+  for var in "${!SETTINGS[@]}"; do
+    [[ "$var" == "${prefix}_${infix}_"* ]] || continue
+    key=${var#"${prefix}_${infix}_"}
+    [[ -n "$key" ]] || continue
+    printf '%s\t%s\n' "$key" "${SETTINGS[$var]}"
+  done
+}
+
+# Rewrite the managed block of the LinuxGSM instance config. Anything the
+# operator added outside the markers is preserved.
+apply_lgsm_config() {
+  local service=$1 id=$2 script=$3
+  local prefix=${ENV_PREFIX[$service]}
+  local cfg="/data/config-lgsm/$script/$script.cfg"
+  local block existing key value count=0
+
+  block="$MANAGED_BEGIN"$'\n'
+  while IFS=$'\t' read -r key value; do
+    [[ -n "$key" ]] || continue
+    # LinuxGSM config keys are lowercase; values are always quoted strings.
+    block+="${key,,}=\"${value}\""$'\n'
+    ((count++))
+  done < <(env_pairs "$prefix" "LGSM")
+  block+="$MANAGED_END"
+
+  if ((count == 0)); then
+    log_info "${DISPLAY_NAMES[$service]}: no ${prefix}_LGSM_* settings; leaving $script.cfg alone"
+    return 0
+  fi
+
+  existing=$(docker exec --user "$LINUXGSM_USER" "$id" \
+    sh -lc "sed '/^${MANAGED_BEGIN//\//\\/}\$/,/^${MANAGED_END//\//\\/}\$/d' '$cfg' 2>/dev/null || true")
+
+  printf '%s\n%s\n' "$existing" "$block" \
+    | docker exec -i --user "$LINUXGSM_USER" "$id" sh -lc "cat > '$cfg'"
+
+  log_ok "${DISPLAY_NAMES[$service]}: wrote $count LinuxGSM setting(s) to $script.cfg"
+}
+
+# Translate an env-var key segment into the real config key.
+config_key() {
+  local key=$1 style=$2
+  if [[ "$style" == "dash" ]]; then
+    key=${key//_/-}
+    # server.properties groups these under a dot, not a dash.
+    key=${key/#query-/query.}
+    key=${key/#rcon-/rcon.}
+  fi
+  printf '%s\n' "$key"
+}
+
+# key=value files (Minecraft server.properties, Project Zomboid .ini).
+apply_kv_config() {
+  local service=$1 id=$2 path=$3 infix=$4 style=$5
+  local prefix=${ENV_PREFIX[$service]}
+  local key value real count=0
+
+  while IFS=$'\t' read -r key value; do
+    [[ -n "$key" ]] || continue
+    real=$(config_key "$key" "$style")
+    docker exec --user "$LINUXGSM_USER" "$id" sh -lc \
+      "f='$path'; k='$real'; v='$value'; \
+       [ -f \"\$f\" ] || exit 3; \
+       if grep -qE \"^[[:space:]]*\${k}=\" \"\$f\"; then \
+         sed -i \"s|^[[:space:]]*\${k}=.*|\${k}=\${v}|\" \"\$f\"; \
+       else printf '%s=%s\n' \"\$k\" \"\$v\" >> \"\$f\"; fi" \
+      || { log_warn "${DISPLAY_NAMES[$service]}: could not set '$real' in ${path##*/}"; continue; }
+    ((count++))
+  done < <(env_pairs "$prefix" "$infix")
+
+  ((count == 0)) || log_ok "${DISPLAY_NAMES[$service]}: wrote $count setting(s) to ${path##*/}"
+}
+
+# 7 Days to Die's <property name="X" value="Y"/> XML.
+apply_xml_config() {
+  local service=$1 id=$2 path=$3 infix=$4
+  local prefix=${ENV_PREFIX[$service]}
+  local key value count=0
+
+  while IFS=$'\t' read -r key value; do
+    [[ -n "$key" ]] || continue
+    docker exec --user "$LINUXGSM_USER" "$id" sh -lc \
+      "f='$path'; k='$key'; v='$value'; \
+       grep -q \"name=\\\"\${k}\\\"\" \"\$f\" 2>/dev/null || exit 3; \
+       sed -i \"s|\\(name=\\\"\${k}\\\"[[:space:]]*value=\\)\\\"[^\\\"]*\\\"|\\1\\\"\${v}\\\"|\" \"\$f\"" \
+      || { log_warn "${DISPLAY_NAMES[$service]}: no XML property named '$key' in ${path##*/}"; continue; }
+    ((count++))
+  done < <(env_pairs "$prefix" "$infix")
+
+  ((count == 0)) || log_ok "${DISPLAY_NAMES[$service]}: wrote $count property/properties to ${path##*/}"
+}
+
+apply_config_one() {
+  local service=$1 id script spec format infix style path
+  id=$(require_running_container "$service") || return 1
+  script=$(linuxgsm_script "$service" "$id")
+  collect_settings "$id"
+
+  apply_lgsm_config "$service" "$id" "$script"
+
+  spec=${GAME_CONFIG[$service]:-}
+  if [[ -n "$spec" ]]; then
+    IFS='|' read -r format infix style path <<< "$spec"
+    case "$format" in
+      kv) apply_kv_config "$service" "$id" "$path" "$infix" "$style" ;;
+      xml) apply_xml_config "$service" "$id" "$path" "$infix" ;;
+    esac
+  fi
+
+  log_warn "${DISPLAY_NAMES[$service]}: restart required for changes to take effect."
 }
 
 upgrade_one() {
@@ -283,7 +541,7 @@ port_summary() {
 }
 
 doctor() {
-  local failures=0 service id state disk_used mem_available
+  local failures=0 service id state disk_used mem_available starts
 
   printf '%sSystem checks%s\n' "$BOLD" "$RESET"
 
@@ -309,11 +567,24 @@ doctor() {
     fi
 
     state=$(container_state "$id")
-    if [[ "$state" == "running" ]]; then
-      log_ok "${DISPLAY_NAMES[$service]}: container running ($(container_name "$id"))"
-    else
+    if [[ "$state" != "running" ]]; then
       log_error "${DISPLAY_NAMES[$service]}: container state is $state"
       failures=1
+      continue
+    fi
+
+    if game_is_running "$id"; then
+      log_ok "${DISPLAY_NAMES[$service]}: server running ($(container_name "$id"))"
+    else
+      log_error "${DISPLAY_NAMES[$service]}: container is up but the game server is NOT running"
+      failures=1
+    fi
+
+    # LinuxGSM's in-container monitor restarts a dead server every minute or so.
+    # A large pile of per-start logs is the only visible trace of that loop.
+    starts=$(start_attempt_count "$id")
+    if [[ "$starts" =~ ^[0-9]+$ ]] && ((starts >= 10)); then
+      log_warn "${DISPLAY_NAMES[$service]}: $starts start attempts logged - possible restart loop"
     fi
   done
 
@@ -332,7 +603,7 @@ interactive_menu() {
   printf '%sLinuxGSM server manager%s\n\n' "$BOLD" "$RESET"
   PS3="Select action: "
   select action in list status start stop restart update check-update force-update \
-    update-lgsm validate backup monitor upgrade details logs console shell exec \
+    update-lgsm validate backup monitor upgrade apply-config details logs console shell exec \
     doctor help quit; do
     [[ -n "$action" ]] || continue
     [[ "$action" == "quit" ]] && return 0
@@ -400,6 +671,7 @@ main() {
       local target=${1:-}
       validate_target "$target"
       [[ "$target" != "all" ]] || die "console requires one server."
+      require_tty console
       run_lgsm "$target" console
       ;;
     logs)
@@ -425,6 +697,12 @@ main() {
       local target=${1:-}
       validate_target "$target"
       for_target "$target" upgrade_one
+      ;;
+    apply-config)
+      local target=${1:-}
+      validate_target "$target"
+      load_env_file
+      for_target "$target" apply_config_one
       ;;
     doctor)
       doctor

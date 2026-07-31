@@ -1,0 +1,45 @@
+---
+name: ci
+
+# Quoted so yamllint does not read the YAML 1.1 `on` boolean.
+"on":
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck bats yamllint
+
+      - name: Lint shell
+        run: shellcheck -x manage.sh test/manage.bats
+
+      - name: Lint YAML
+        run: yamllint docker-compose.yaml .github/workflows/ci.yml
+
+      - name: Validate compose file
+        run: docker compose config -q
+
+      # The suite stubs `docker` via PATH injection, so no daemon or game
+      # containers are needed. It pins the error-propagation regressions
+      # recorded in docs/audit/findings/resolved.jsonl.
+      - name: Run tests
+        run: bats test/manage.bats
+
+      # shfmt misparses hyphenated associative-array keys and silently corrupts
+      # manage.sh. Fail the build if someone commits the mangled form.
+      - name: Reject shfmt-corrupted array keys
+        run: |
+          if grep -qE '\[(project|seven) - ' manage.sh; then
+            echo "manage.sh has shfmt-corrupted associative array keys" >&2
+            exit 1
+          fi

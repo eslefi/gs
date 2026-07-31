@@ -1,0 +1,5 @@
+# Local environment file: holds real server passwords. Never commit it.
+# `.env.example` is the tracked template and must only ever carry placeholders.
+.env
+.env.local
+!.env.example
