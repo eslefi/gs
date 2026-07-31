@@ -131,15 +131,21 @@ container limit must always exceed the game's heap, never equal it.
 
 | Server | Players | Container limit | Game memory setting | Player cap setting | Documented basis |
 | --- | --- | --- | --- | --- | --- |
-| Minecraft | 15 | `MINECRAFT_MEMORY_LIMIT` (11g) | `javaram=8192` in `/data/config-lgsm/mcserver/mcserver.cfg` | `max-players` in `server.properties` | ~8 GB heap at 15 players |
-| Project Zomboid | 15 | `PROJECT_ZOMBOID_MEMORY_LIMIT` (18g) | `-Xmx14g` in `/data/serverfiles/ProjectZomboid64.json` | `MaxPlayers` in the server `.ini` | ~6 GB base + 0.5 GB/player |
-| Valheim | **10** | `VALHEIM_MEMORY_LIMIT` (6g) | none (native binary) | **not configurable** | 2 GB official min, 4–6 GB practical |
-| 7 Days to Die | 15 | `SEVEN_DAYS_TO_DIE_MEMORY_LIMIT` (20g) | none (native binary) | `ServerMaxPlayerCount` in `sdtdserver.xml` | 8 GB + 0.5–1 GB/player |
+| Minecraft | 15 | `MINECRAFT_MEMORY_LIMIT` (9g) | `javaram=7168` in `/data/config-lgsm/mcserver/mcserver.cfg` | `max-players` in `server.properties` | 4–8 GB heap |
+| Project Zomboid | 15 | `PROJECT_ZOMBOID_MEMORY_LIMIT` (15g) | `-Xmx12g` in `/data/serverfiles/ProjectZomboid64.json` | `MaxPlayers` in the server `.ini` | ~6 GB base + 0.5 GB/player |
+| Valheim | **10** | `VALHEIM_MEMORY_LIMIT` (5g) | none (native binary) | **not configurable** | 2 GB official min, 4–6 GB practical |
+| 7 Days to Die | 15 | `SEVEN_DAYS_TO_DIE_MEMORY_LIMIT` (17g) | none (native binary) | `ServerMaxPlayerCount` in `sdtdserver.xml` | 8 GB + 0.5–1 GB/player |
 
-The limits total 55 GiB on a 62 GiB host. They are ceilings, not reservations —
-current idle use across all four is under 6 GiB — but all four running full at
-once (15+15+10+15 = 55 players) would exceed physical memory. Size down if that
-is a realistic scenario for you.
+The limits total **46 GiB** and are sized to fit the host even in the worst
+case. Measured budget: 62.6 GiB total, minus 4.4 GiB used by the 25 other
+(unlimited) containers on this host, minus kernel and slab — so all four game
+servers can sit at their ceiling simultaneously with roughly 10 GiB still spare.
+
+For the two Java servers the container limit must clear `-Xmx` with room for
+non-heap memory: Minecraft 7 GB heap in 9g, Project Zomboid 12 GB heap in 15g.
+Both heaps sit at the lower end of the documented 15-player range, which is the
+trade-off for fitting the host — if you see GC pauses or tick lag with a full
+server, raise the heap and the container limit together, never one alone.
 
 LinuxGSM ships Minecraft with `javaram="1024"`, i.e. a 1 GB heap. That default
 must be overridden or the server will exhaust its heap well before the container
