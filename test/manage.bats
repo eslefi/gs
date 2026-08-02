@@ -325,6 +325,25 @@ ENV
   [[ "$output" != *"trailing comment"* ]]
 }
 
+# An apostrophe used to close the quote that the value was spliced into, so the
+# remote shell died with "Unterminated quoted string" and the setting was
+# skipped. Server names like `drifter9000's Minecraft server` are exactly the
+# case that regressed.
+@test "apply-config applies values containing apostrophes and shell metacharacters" {
+  cat >"$TEST_BIN/t.env" <<'ENV'
+MINECRAFT_PROP_motd=drifter9000's Minecraft server
+MINECRAFT_PROP_level_name=a|b&c$d`e
+ENV
+  run env ENV_FILE="$TEST_BIN/t.env" bash "$MANAGE_SH" apply-config minecraft
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"wrote 2 setting"* ]]
+  [[ "$output" == *"motd=drifter9000's Minecraft server"* ]]
+  # sed would have eaten | and &; the shell would have eaten $ and `
+  [[ "$output" == *'level-name=a|b&c$d`e'* ]]
+  [[ "$output" != *"Unterminated"* ]]
+  [[ "$output" != *"could not set"* ]]
+}
+
 @test "apply-config writes 7 Days to Die XML properties verbatim" {
   cat >"$TEST_BIN/t.env" <<'ENV'
 SEVEN_DAYS_TO_DIE_XML_ServerMaxPlayerCount=10

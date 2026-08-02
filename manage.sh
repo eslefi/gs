@@ -470,44 +470,131 @@ config_key() {
   printf '%s\n' "$key"
 }
 
+# Fetch a config file out of the container. Fails loudly rather than returning
+# an empty body, so a missing file can never be mistaken for an empty one.
+read_remote_file() {
+  docker exec --user "$LINUXGSM_USER" "$1" sh -c '[ -f "$1" ] && cat "$1"' _ "$2" 2>/dev/null
+}
+
+# Write a body back over a config file. The path travels as an argument, never
+# as text spliced into the remote command.
+write_remote_file() {
+  docker exec -i --user "$LINUXGSM_USER" "$1" sh -c 'cat > "$1"' _ "$2"
+}
+
 # key=value files (Minecraft server.properties, Project Zomboid .ini).
+#
+# The file is fetched, rewritten here in bash, and written back whole. The edit
+# deliberately does NOT happen in a `sh -c` inside the container. It used to,
+# with the value interpolated into the remote command text as `v='$value'`, so
+# any value containing an apostrophe closed that quote early: setting
+# `PublicName=drifter9000's server` made the remote shell die with
+# "Unterminated quoted string", the setting was skipped, and only a warning
+# marked it. The same splice also fed the value to `sed` as a replacement, where
+# `|`, `&` and `\` are metacharacters. Rewriting host-side re-parses nothing.
 apply_kv_config() {
   local service=$1 id=$2 path=$3 infix=$4 style=$5
   local prefix=${ENV_PREFIX[$service]}
   local key value real count=0
+  local -A wanted=() seen=()
 
   while IFS=$'\t' read -r key value; do
     [[ -n "$key" ]] || continue
     real=$(config_key "$key" "$style")
-    docker exec --user "$LINUXGSM_USER" "$id" sh -lc \
-      "f='$path'; k='$real'; v='$value'; \
-       [ -f \"\$f\" ] || exit 3; \
-       if grep -qE \"^[[:space:]]*\${k}=\" \"\$f\"; then \
-         sed -i \"s|^[[:space:]]*\${k}=.*|\${k}=\${v}|\" \"\$f\"; \
-       else printf '%s=%s\n' \"\$k\" \"\$v\" >> \"\$f\"; fi" \
-      || { log_warn "${DISPLAY_NAMES[$service]}: could not set '$real' in ${path##*/}"; continue; }
-    ((count++))
+    wanted["$real"]=$value
   done < <(env_pairs "$prefix" "$infix")
 
-  ((count == 0)) || log_ok "${DISPLAY_NAMES[$service]}: wrote $count setting(s) to ${path##*/}"
+  ((${#wanted[@]} > 0)) || return 0
+
+  local content
+  if ! content=$(read_remote_file "$id" "$path"); then
+    log_warn "${DISPLAY_NAMES[$service]}: ${path##*/} is missing or unreadable; wrote nothing"
+    return 0
+  fi
+
+  local -a out=()
+  local line linekey
+  while IFS= read -r line; do
+    linekey=${line%%=*}
+    linekey=${linekey##*([[:space:]])}
+    linekey=${linekey%%*([[:space:]])}
+    if [[ "$line" == *=* ]] && [[ -v wanted["$linekey"] ]]; then
+      out+=("$linekey=${wanted[$linekey]}")
+      if [[ ! -v seen["$linekey"] ]]; then
+        seen["$linekey"]=1
+        count=$((count + 1))
+      fi
+    else
+      out+=("$line")
+    fi
+  done <<< "$content"
+
+  # A key the file does not already carry is appended, as before.
+  for key in "${!wanted[@]}"; do
+    if [[ ! -v seen["$key"] ]]; then
+      out+=("$key=${wanted[$key]}")
+      count=$((count + 1))
+    fi
+  done
+
+  printf '%s\n' "${out[@]}" | write_remote_file "$id" "$path"
+  log_ok "${DISPLAY_NAMES[$service]}: wrote $count setting(s) to ${path##*/}"
+}
+
+# Attribute values are delimited with ", so an apostrophe needs no escaping, but
+# a bare & or < would silently produce XML that 7 Days to Die cannot parse.
+xml_escape() {
+  local s=${1//&/\&amp;}
+  s=${s//</\&lt;}
+  s=${s//>/\&gt;}
+  printf '%s' "${s//\"/\&quot;}"
 }
 
 # 7 Days to Die's <property name="X" value="Y"/> XML.
+# Same fetch/rewrite/write-back shape as apply_kv_config, for the same reason.
 apply_xml_config() {
   local service=$1 id=$2 path=$3 infix=$4
   local prefix=${ENV_PREFIX[$service]}
   local key value count=0
+  local -A wanted=() seen=()
 
   while IFS=$'\t' read -r key value; do
     [[ -n "$key" ]] || continue
-    docker exec --user "$LINUXGSM_USER" "$id" sh -lc \
-      "f='$path'; k='$key'; v='$value'; \
-       grep -q \"name=\\\"\${k}\\\"\" \"\$f\" 2>/dev/null || exit 3; \
-       sed -i \"s|\\(name=\\\"\${k}\\\"[[:space:]]*value=\\)\\\"[^\\\"]*\\\"|\\1\\\"\${v}\\\"|\" \"\$f\"" \
-      || { log_warn "${DISPLAY_NAMES[$service]}: no XML property named '$key' in ${path##*/}"; continue; }
-    ((count++))
+    wanted["$key"]=$value
   done < <(env_pairs "$prefix" "$infix")
 
+  ((${#wanted[@]} > 0)) || return 0
+
+  local content
+  if ! content=$(read_remote_file "$id" "$path"); then
+    log_warn "${DISPLAY_NAMES[$service]}: ${path##*/} is missing or unreadable; wrote nothing"
+    return 0
+  fi
+
+  local -a out=() missing=()
+  local line name
+  while IFS= read -r line; do
+    if [[ "$line" =~ name=\"([^\"]+)\"[[:space:]]*value=\" ]]; then
+      name=${BASH_REMATCH[1]}
+      if [[ -v wanted["$name"] ]] && [[ "$line" =~ ^(.*value=\")[^\"]*(\".*)$ ]]; then
+        out+=("${BASH_REMATCH[1]}$(xml_escape "${wanted[$name]}")${BASH_REMATCH[2]}")
+        if [[ ! -v seen["$name"] ]]; then
+          seen["$name"]=1
+          count=$((count + 1))
+        fi
+        continue
+      fi
+    fi
+    out+=("$line")
+  done <<< "$content"
+
+  for key in "${!wanted[@]}"; do
+    [[ -v seen["$key"] ]] || missing+=("$key")
+  done
+  ((${#missing[@]} == 0)) \
+    || log_warn "${DISPLAY_NAMES[$service]}: no XML property named: ${missing[*]}"
+
+  printf '%s\n' "${out[@]}" | write_remote_file "$id" "$path"
   ((count == 0)) || log_ok "${DISPLAY_NAMES[$service]}: wrote $count property/properties to ${path##*/}"
 }
 
